@@ -10,16 +10,22 @@ class TwoProngGripper:
     def __init__(self, grip_force=1):
         self.grip_force = grip_force
         self.default_orientation = p.getQuaternionFromEuler([np.pi, 0, 0])  # Face downwards
+        self.default_joint_positions = [0.550569, 0.0, 0.549657, 0.0]  # Reference joint positions
         self.gripper_id = self.load_gripper()
         self.num_joints = p.getNumJoints(self.gripper_id)
 
+        # Disable gravity for the gripper
+        p.changeDynamics(self.gripper_id, -1, mass=0, linearDamping=0, angularDamping=0)
+
     def load_gripper(self):
-        """Load the pr2 gripper URDF."""
-        # Set search path for PyBullet's data URDFs
+        """Load the PR2 gripper URDF."""
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         gripper_id = p.loadURDF("pr2_gripper.urdf", [0, 0, 0], self.default_orientation,
                                 globalScaling=1, useFixedBase=False)
-        print("Two-pronged gripper loaded.")
+        # Set initial joint positions
+        for joint_index, joint_position in enumerate(self.default_joint_positions):
+            p.resetJointState(gripper_id, joint_index, joint_position)
+        print("Two-pronged gripper loaded with initial joint positions.")
         return gripper_id
 
     def open_gripper(self):
@@ -31,16 +37,18 @@ class TwoProngGripper:
         time.sleep(0.5)
 
     def close_gripper(self):
-        """Close the gripper."""
+        """Close the gripper and wait for it to fully close."""
         for joint in [0, 2]:  # PR2 gripper's fingers
             p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL, 
                                     targetPosition=0.1, maxVelocity=1, force=self.grip_force)
         p.stepSimulation()
-        time.sleep(0.5)
+        time.sleep(1.0)  # Wait explicitly for the gripper to fully close
 
     def reset(self, position, orientation):
-        """Reset the gripper's position and orientation."""
+        """Reset the gripper's position, orientation, and joint positions."""
         p.resetBasePositionAndOrientation(self.gripper_id, position, orientation)
+        for joint_index, joint_position in enumerate(self.default_joint_positions):
+            p.resetJointState(self.gripper_id, joint_index, joint_position)
         self.open_gripper()
 
 class Block:
@@ -98,7 +106,7 @@ class GraspSimulator:
         p.loadURDF("plane.urdf")
         print("Floor added.")
 
-    def generate_random_pose(self, height=0.35, max_angle= np.pi / 12):
+    def generate_random_pose(self, height=0.35, max_angle=np.pi / 12):
         """Generate a random pose for the gripper around the block."""
         position_noise = np.random.uniform(-0.02, 0.02, size=2)
         random_position = [
@@ -107,7 +115,7 @@ class GraspSimulator:
             self.block.initial_position[2] + height
         ]
         roll = np.random.uniform(-max_angle, max_angle)
-        pitch = np.random.uniform(-max_angle, max_angle) + np.pi/2
+        pitch = np.random.uniform(-max_angle, max_angle) + np.pi / 2
         yaw = np.random.uniform(-max_angle, max_angle) + np.pi
         random_orientation = p.getQuaternionFromEuler([roll, pitch, yaw])
         return random_position, random_orientation
@@ -120,15 +128,6 @@ class GraspSimulator:
 
         # Close gripper
         self.gripper.close_gripper()
-
-        # Check for contact
-        contact_points = p.getContactPoints(bodyA=self.gripper.gripper_id, bodyB=self.block.block_id)
-        if not contact_points:
-            print("No contact detected. Skipping pose.")
-            return False
-
-        # Enable gravity for the block
-        p.changeDynamics(self.block.block_id, -1, mass=0.1, linearDamping=0.01, angularDamping=0.01)
 
         # Lift the block
         lift_position = [position[0], position[1], position[2] + lift_height]

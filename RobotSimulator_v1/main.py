@@ -47,7 +47,7 @@ class Block:
     """Represents the block object."""
     def __init__(self, initial_position=None, initial_orientation=None):
         if initial_position is None:
-            initial_position = [0, 0, 0.025]
+            initial_position = [0, 0, 0.1]
         if initial_orientation is None:
             initial_orientation = [0, 0, 0, 1]
         self.initial_position = initial_position
@@ -98,7 +98,7 @@ class GraspSimulator:
         p.loadURDF("plane.urdf")
         print("Floor added.")
 
-    def generate_random_pose(self, height=0.15, max_angle=np.pi / 6):
+    def generate_random_pose(self, height=0.35, max_angle= np.pi / 12):
         """Generate a random pose for the gripper around the block."""
         position_noise = np.random.uniform(-0.02, 0.02, size=2)
         random_position = [
@@ -107,9 +107,9 @@ class GraspSimulator:
             self.block.initial_position[2] + height
         ]
         roll = np.random.uniform(-max_angle, max_angle)
-        pitch = np.random.uniform(-max_angle, max_angle)
-        yaw = np.random.uniform(-np.pi, np.pi)
-        random_orientation = p.getQuaternionFromEuler([np.pi + roll, pitch, yaw])
+        pitch = np.random.uniform(-max_angle, max_angle) + np.pi/2
+        yaw = np.random.uniform(-max_angle, max_angle) + np.pi
+        random_orientation = p.getQuaternionFromEuler([roll, pitch, yaw])
         return random_position, random_orientation
 
     def attempt_grasp(self, position, orientation, lift_height=0.15, wait_time=3):

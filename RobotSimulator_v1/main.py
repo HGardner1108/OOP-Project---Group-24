@@ -30,8 +30,6 @@ class TwoProngGripper:
 
     def preshape_gripper(self):
         """Move the gripper fingers into a preshape configuration."""
-        print("Preshaping gripper. Press Enter to proceed.")
-        input()
         for joint in [0, 2]:  # PR2 gripper's fingers
             p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
                                     targetPosition=0.4, maxVelocity=2, force=self.grip_force)
@@ -39,45 +37,51 @@ class TwoProngGripper:
         time.sleep(1.0)  # Allow the preshape to complete
 
     def close_gripper(self):
-        """Close the gripper and wait for it to fully close."""
-        print("Closing gripper. Press Enter to proceed.")
-        input()
+        """Close the gripper by setting joints [0, 2] explicitly to position 0."""
         for joint in [0, 2]:  # PR2 gripper's fingers
-            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
-                                    targetPosition=0.0, maxVelocity=1, force=self.grip_force)
+            # Explicitly reset the joint state to 0.0
+            p.resetJointState(self.gripper_id, joint, 0.0)
         p.stepSimulation()
-        time.sleep(1.0)  # Allow the gripper to fully close
+        time.sleep(1.0)  # Allow the gripper to settle in the closed state
 
     def reset(self, position, orientation):
         """Reset the gripper's position, orientation, and joint positions."""
-        print("Resetting gripper. Press Enter to proceed.")
-        input()
         p.resetBasePositionAndOrientation(self.gripper_id, position, orientation)
         for joint_index, joint_position in enumerate(self.default_joint_positions):
             p.resetJointState(self.gripper_id, joint_index, joint_position)
         self.preshape_gripper()
 
-    def lift_gripper(self, lift_position, orientation, num_steps=100):
+    def lift_gripper(self, target_lift_position, orientation, num_steps=100):
         """Lift the gripper to a specified position while maintaining orientation."""
-        print("Lifting gripper. Press Enter to proceed.")
-        input()
+
+        # Lock gripper joint positions
+        for joint in [0, 2]:  # PR2 gripper's fingers
+            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
+                                    targetPosition=0.0, maxVelocity=1, force=self.grip_force)
+
+        # Get the current position of the gripper
+        current_position, _ = p.getBasePositionAndOrientation(self.gripper_id)
+
+        # Lift gripper from the current position to the target position
         for step in range(num_steps):
             interpolated_position = [
-                lift_position[0],
-                lift_position[1],
-                lift_position[2] * step / num_steps
+                current_position[0] + (target_lift_position[0] - current_position[0]) * step / num_steps,
+                current_position[1] + (target_lift_position[1] - current_position[1]) * step / num_steps,
+                current_position[2] + (target_lift_position[2] - current_position[2]) * step / num_steps,
             ]
             p.resetBasePositionAndOrientation(self.gripper_id, interpolated_position, orientation)
             p.stepSimulation()
             time.sleep(1 / 240.0)
-        time.sleep(1.0)
+
+
+
 
 
 class Block:
     """Represents the block object."""
     def __init__(self, initial_position=None, initial_orientation=None):
         if initial_position is None:
-            initial_position = [0, 0, 0.1]
+            initial_position = [0, 0, 0.02]
         if initial_orientation is None:
             initial_orientation = [0, 0, 0, 1]
         self.initial_position = initial_position
@@ -100,8 +104,6 @@ class Block:
 
     def reset(self):
         """Reset the block to its initial state."""
-        print("Resetting block. Press Enter to proceed.")
-        input()
         p.resetBasePositionAndOrientation(self.block_id, self.initial_position, self.initial_orientation)
         self.configure_dynamics()
 
@@ -131,7 +133,7 @@ class GraspSimulator:
         p.loadURDF("plane.urdf")
         print("Floor added.")
 
-    def generate_random_pose(self, height=0.35, max_angle=np.pi / 12):
+    def generate_random_pose(self, height=0.29, max_angle=np.pi / 12):
         """Generate a random pose for the gripper around the block."""
         position_noise = np.random.uniform(-0.02, 0.02, size=2)
         random_position = [
@@ -145,7 +147,7 @@ class GraspSimulator:
         random_orientation = p.getQuaternionFromEuler([roll, pitch, yaw])
         return random_position, random_orientation
 
-    def attempt_grasp(self, position, orientation, lift_height=0.5):
+    def attempt_grasp(self, position, orientation, lift_height=0.3):
         """Attempt a grasp and check if successful."""
         self.gripper.reset(position, orientation)
         self.block.reset()
@@ -170,8 +172,6 @@ class GraspSimulator:
     def run_trials(self):
         """Run multiple grasp trials."""
         for i in range(self.num_trials):
-            print(f"Running trial {i + 1}. Press Enter to proceed.")
-            input()
             random_position, random_orientation = self.generate_random_pose()
             success = self.attempt_grasp(random_position, random_orientation)
             self.results.append({

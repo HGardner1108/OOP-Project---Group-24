@@ -37,12 +37,14 @@ class TwoProngGripper:
         time.sleep(1.0)  # Allow the preshape to complete
 
     def close_gripper(self):
-        """Close the gripper by setting joints [0, 2] explicitly to position 0."""
-        for joint in [0, 2]:  # PR2 gripper's fingers
-            # Explicitly reset the joint state to 0.0
-            p.resetJointState(self.gripper_id, joint, 0.0)
-        p.stepSimulation()
-        time.sleep(1.0)  # Allow the gripper to settle in the closed state
+        """Close the gripper using force and let collisions handle stopping."""
+        for joint in [0, 2]:  # Adjust for your gripper's joint indices
+            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
+                                    targetPosition=0.0, maxVelocity=1, force=self.grip_force)
+        # Run simulation for a short time to allow the gripper to close
+        for _ in range(240):  # Simulate for 1 second at 240 Hz
+            p.stepSimulation()
+            time.sleep(1 / 240.0)
 
     def reset(self, position, orientation):
         """Reset the gripper's position, orientation, and joint positions."""
@@ -72,8 +74,6 @@ class TwoProngGripper:
             p.resetBasePositionAndOrientation(self.gripper_id, interpolated_position, orientation)
             p.stepSimulation()
             time.sleep(1 / 240.0)
-
-
 
 
 
@@ -133,7 +133,7 @@ class GraspSimulator:
         p.loadURDF("plane.urdf")
         print("Floor added.")
 
-    def generate_random_pose(self, height=0.29, max_angle=np.pi / 12):
+    def generate_random_pose(self, height=0.3, max_angle=np.pi / 12):
         """Generate a random pose for the gripper around the block."""
         position_noise = np.random.uniform(-0.02, 0.02, size=2)
         random_position = [

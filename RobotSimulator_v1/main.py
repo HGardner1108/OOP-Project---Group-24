@@ -28,28 +28,50 @@ class TwoProngGripper:
         print("Two-pronged gripper loaded with initial joint positions.")
         return gripper_id
 
-    def open_gripper(self):
-        """Open the gripper to its fully open position."""
+    def preshape_gripper(self):
+        """Move the gripper fingers into a preshape configuration."""
+        print("Preshaping gripper. Press Enter to proceed.")
+        input()
         for joint in [0, 2]:  # PR2 gripper's fingers
-            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL, 
-                                    targetPosition=0.0, maxVelocity=1, force=self.grip_force)
+            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
+                                    targetPosition=0.4, maxVelocity=2, force=self.grip_force)
         p.stepSimulation()
-        time.sleep(0.5)
+        time.sleep(1.0)  # Allow the preshape to complete
 
     def close_gripper(self):
         """Close the gripper and wait for it to fully close."""
+        print("Closing gripper. Press Enter to proceed.")
+        input()
         for joint in [0, 2]:  # PR2 gripper's fingers
-            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL, 
-                                    targetPosition=0.1, maxVelocity=1, force=self.grip_force)
+            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
+                                    targetPosition=0.0, maxVelocity=1, force=self.grip_force)
         p.stepSimulation()
-        time.sleep(1.0)  # Wait explicitly for the gripper to fully close
+        time.sleep(1.0)  # Allow the gripper to fully close
 
     def reset(self, position, orientation):
         """Reset the gripper's position, orientation, and joint positions."""
+        print("Resetting gripper. Press Enter to proceed.")
+        input()
         p.resetBasePositionAndOrientation(self.gripper_id, position, orientation)
         for joint_index, joint_position in enumerate(self.default_joint_positions):
             p.resetJointState(self.gripper_id, joint_index, joint_position)
-        self.open_gripper()
+        self.preshape_gripper()
+
+    def lift_gripper(self, lift_position, orientation, num_steps=100):
+        """Lift the gripper to a specified position while maintaining orientation."""
+        print("Lifting gripper. Press Enter to proceed.")
+        input()
+        for step in range(num_steps):
+            interpolated_position = [
+                lift_position[0],
+                lift_position[1],
+                lift_position[2] * step / num_steps
+            ]
+            p.resetBasePositionAndOrientation(self.gripper_id, interpolated_position, orientation)
+            p.stepSimulation()
+            time.sleep(1 / 240.0)
+        time.sleep(1.0)
+
 
 class Block:
     """Represents the block object."""
@@ -78,12 +100,15 @@ class Block:
 
     def reset(self):
         """Reset the block to its initial state."""
+        print("Resetting block. Press Enter to proceed.")
+        input()
         p.resetBasePositionAndOrientation(self.block_id, self.initial_position, self.initial_orientation)
         self.configure_dynamics()
 
+
 class GraspSimulator:
     """Simulates grasping trials."""
-    def __init__(self, num_trials=50, grip_force=1):
+    def __init__(self, num_trials=50, grip_force=100):
         self.num_trials = num_trials
         self.gripper = None
         self.block = None
@@ -120,38 +145,24 @@ class GraspSimulator:
         random_orientation = p.getQuaternionFromEuler([roll, pitch, yaw])
         return random_position, random_orientation
 
-    def attempt_grasp(self, position, orientation, lift_height=0.15, wait_time=3):
+    def attempt_grasp(self, position, orientation, lift_height=0.5):
         """Attempt a grasp and check if successful."""
-        # Reset gripper and block
         self.gripper.reset(position, orientation)
         self.block.reset()
 
-        # Close gripper
+        self.gripper.preshape_gripper()
         self.gripper.close_gripper()
 
-        # Lift the block
         lift_position = [position[0], position[1], position[2] + lift_height]
-        num_steps = 50
-        for step in range(num_steps):
-            interpolated_position = [
-                position[0],
-                position[1],
-                position[2] + (lift_height * step / num_steps)
-            ]
-            p.resetBasePositionAndOrientation(self.gripper.gripper_id, interpolated_position, orientation)
-            p.stepSimulation()
-            time.sleep(1 / 240.0)
+        self.gripper.lift_gripper(lift_position, orientation)
 
-        # Monitor for slipping
-        start_time = time.time()
         initial_position = p.getBasePositionAndOrientation(self.block.block_id)[0]
-        while time.time() - start_time < wait_time:
-            p.stepSimulation()
-            time.sleep(1 / 240.0)
-            current_position = p.getBasePositionAndOrientation(self.block.block_id)[0]
-            if current_position[2] < initial_position[2] - 0.01:
-                print("Block slipped.")
-                return False
+        time.sleep(1.0)
+        final_position = p.getBasePositionAndOrientation(self.block.block_id)[0]
+
+        if final_position[2] < initial_position[2] - 0.01:
+            print("Block slipped.")
+            return False
 
         print("Grasp successful!")
         return True
@@ -159,6 +170,8 @@ class GraspSimulator:
     def run_trials(self):
         """Run multiple grasp trials."""
         for i in range(self.num_trials):
+            print(f"Running trial {i + 1}. Press Enter to proceed.")
+            input()
             random_position, random_orientation = self.generate_random_pose()
             success = self.attempt_grasp(random_position, random_orientation)
             self.results.append({
@@ -185,6 +198,7 @@ class GraspSimulator:
         self.run_trials()
         p.disconnect()
 
+
 if __name__ == "__main__":
-    simulator = GraspSimulator(num_trials=50, grip_force=1)
+    simulator = GraspSimulator(num_trials=50, grip_force=100)
     simulator.run()

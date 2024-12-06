@@ -54,9 +54,9 @@ class TwoProngGripper:
         self.preshape_gripper()
 
     def lift_gripper(self, target_lift_position, orientation, num_steps=100):
-        """Lift the gripper to a specified position while maintaining orientation."""
+        """Lift the gripper to a specified position while maintaining orientation and applying grip force."""
 
-        # Lock gripper joint positions
+        # Ensure gripper remains closed during lift
         for joint in [0, 2]:  # PR2 gripper's fingers
             p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
                                     targetPosition=0.0, maxVelocity=1, force=self.grip_force)
@@ -64,24 +64,34 @@ class TwoProngGripper:
         # Get the current position of the gripper
         current_position, _ = p.getBasePositionAndOrientation(self.gripper_id)
 
-        # Lift gripper from the current position to the target position
+        # Gradually move to the target lift position
         for step in range(num_steps):
+            # Interpolate position between current and target positions
             interpolated_position = [
                 current_position[0] + (target_lift_position[0] - current_position[0]) * step / num_steps,
                 current_position[1] + (target_lift_position[1] - current_position[1]) * step / num_steps,
                 current_position[2] + (target_lift_position[2] - current_position[2]) * step / num_steps,
             ]
+            # Apply the new position and orientation to the gripper
             p.resetBasePositionAndOrientation(self.gripper_id, interpolated_position, orientation)
+
+            # Continuously reapply grip force to the gripper joints
+            for joint in [0, 2]:  # PR2 gripper's fingers
+                p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
+                                        targetPosition=0.0, maxVelocity=1, force=self.grip_force)
+
+            # Step the simulation
             p.stepSimulation()
             time.sleep(1 / 240.0)
 
+        time.sleep(1.0)
 
 
 class Block:
     """Represents the block object."""
     def __init__(self, initial_position=None, initial_orientation=None):
         if initial_position is None:
-            initial_position = [0, 0, 0.02]
+            initial_position = [0, 0, 0.025]
         if initial_orientation is None:
             initial_orientation = [0, 0, 0, 1]
         self.initial_position = initial_position

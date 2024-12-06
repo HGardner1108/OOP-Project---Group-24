@@ -34,13 +34,7 @@ class Gripper(ABC):
     def openGripper(self):
         pass
 
-    @abstractmethod
-    def preshape(self):
-        pass
-
-    @abstractmethod
-    def grasp(self):
-        pass
+    # Removed preshape() method as it's redundant with preshape_gripper()
 
 
 # ========== TwoFingerGripper ==========
@@ -131,14 +125,6 @@ class TwoFingerGripper(Gripper):
             time.sleep(1/240.0)
         self.open = True
 
-    def preshape(self):
-        """High-level command to preshape the gripper."""
-        self.preshape_gripper()
-
-    def grasp(self):
-        """High-level command to grasp with the gripper."""
-        self.close_gripper()
-
 
 # ========== ThreeFingerGripper ==========
 class ThreeFingerGripper(Gripper):
@@ -165,7 +151,15 @@ class ThreeFingerGripper(Gripper):
         pass
 
     def close_gripper(self):
-        pass
+        done = False
+        while not done:
+            for i in [1,4]:
+                p.setJointMotorControl2(self.robot_model, i, p.POSITION_CONTROL,
+                                        targetPosition=0.05, maxVelocity=1, force=1)
+            p.setJointMotorControl2(self.robot_model, 7, p.POSITION_CONTROL,
+                                    targetPosition=0.05, maxVelocity=1, force=2)
+            done = True
+        self.open = False
 
     def reset(self, position, orientation):
         pass
@@ -174,12 +168,6 @@ class ThreeFingerGripper(Gripper):
         pass
 
     def openGripper(self):
-        pass
-
-    def preshape(self):
-        pass
-
-    def grasp(self):
         pass
 
 
@@ -197,7 +185,7 @@ class Block(ABC):
 
 # ========== Cube Block ==========
 class Cube(Block):
-    """Simple cube block."""
+    """Simple cube object."""
     def __init__(self, initial_position=None, initial_orientation=None):
         if initial_position is None:
             initial_position = [0, 0, 0.025]
@@ -277,10 +265,11 @@ class GraspSimulator:
         self.gripper.reset(position, orientation)
         self.block.reset()
 
-        # Use the high-level commands
+        # Use the high-level commands:
+        # open the gripper, preshape_gripper (instead of preshape), then close_gripper
         self.gripper.openGripper()
-        self.gripper.preshape()
-        self.gripper.grasp()
+        self.gripper.preshape_gripper()  # directly calling the low-level preshape now
+        self.gripper.close_gripper()     # closing the gripper to attempt the grasp
 
         lift_position = [position[0], position[1], position[2] + lift_height]
         self.gripper.lift_gripper(lift_position, orientation)

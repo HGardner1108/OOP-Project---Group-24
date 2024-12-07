@@ -137,7 +137,7 @@ class ThreeFingerGripper(Gripper):
         self.default_joint_positions = [0.05]*self.num_joints  
         self.open = False  # start closed
 
-        p.changeDynamics(self.gripper_id, -1, mass=0, linearDamping=0, angularDamping=0)
+        p.changeDynamics(self.gripper_id, -1, mass=1, linearDamping=0, angularDamping=0)
 
         # Set joints to default closed state right after loading
         for joint_index, joint_position in enumerate(self.default_joint_positions):
@@ -162,7 +162,7 @@ class ThreeFingerGripper(Gripper):
 
     def reset(self, position, orientation):
         # Override the given position and orientation with your desired values
-        desired_position = [0, 0, 0.25]
+        desired_position = [0, 0, 0.1]
         desired_orientation = p.getQuaternionFromEuler([np.pi, 0, 0])
 
         p.resetBasePositionAndOrientation(self.gripper_id, desired_position, desired_orientation)
@@ -355,27 +355,30 @@ class GraspSimulator:
     def attempt_grasp(self, position, orientation, lift_height=0.3):
         """Attempt a grasp and check if successful."""
 
-        # Step 1: Reset the gripper (it starts closed as loaded, do not open here)
-        self.wait_for_enter("Press ENTER to reset the gripper to the given position/orientation...")
-        self.gripper.reset(position, orientation)  # Remains closed
+        # Step 1: Reset the gripper
+        self.gripper.reset(position, orientation)
 
-        # Step 2: Open the gripper before resetting the block
-        self.wait_for_enter("Press ENTER to open the gripper (it was closed initially)...")
+        # Step 2: Open the gripper
         self.gripper.openGripper()
 
-        # Step 3: Reset the block now that the gripper is open
-        self.wait_for_enter("Press ENTER to reset the block...")
+        # Step 3: Reset the block
+        
         self.block.reset()
+        
+        # Stop block from falling due to no floor
+        
+        block_constraint = p.createConstraint(self.block.block_id, -1, -1, -1, 
+                                      p.JOINT_FIXED, [0, 0, 0], [0, 0, 0], [0, 0, 0])
 
-        # Step 4: Close the gripper to grasp
-        self.wait_for_enter("Press ENTER to close (grasp) the gripper...")
+        # Step 4: Close the gripper
         self.gripper.close_gripper()
+        
 
         # Step 5: Lift the gripper
-        self.wait_for_enter("Press ENTER to lift the gripper...")
         lift_position = [position[0], position[1], position[2] + lift_height]
         self.gripper.lift_gripper(lift_position, orientation)
 
+        # Check block position to determine success
         initial_position = p.getBasePositionAndOrientation(self.block.block_id)[0]
         time.sleep(1.0)
         final_position = p.getBasePositionAndOrientation(self.block.block_id)[0]

@@ -79,8 +79,9 @@ class TwoFingerGripper(Gripper):
         self.open = False
 
     def reset(self, position, orientation):
-        """Reset the gripper's position, orientation, and joint positions."""
+        """Reset the gripper to the given position and orientation."""
         p.resetBasePositionAndOrientation(self.gripper_id, position, orientation)
+        # Reset joints to default positions
         for joint_index, joint_position in enumerate(self.default_joint_positions):
             p.resetJointState(self.gripper_id, joint_index, joint_position)
         # After resetting, open the gripper so it's ready for next action
@@ -179,11 +180,8 @@ class ThreeFingerGripper(Gripper):
 
 
     def reset(self, position, orientation):
-        # Override the given position and orientation with your desired values
-        desired_position = [0, 0, 0.21]
-        desired_orientation = p.getQuaternionFromEuler([np.pi, 0, 0])
-
-        p.resetBasePositionAndOrientation(self.gripper_id, desired_position, desired_orientation)
+        """Reset the gripper to the given position and orientation."""
+        p.resetBasePositionAndOrientation(self.gripper_id, position, orientation)
         # Reset joints to default positions
         for joint_index, joint_position in enumerate(self.default_joint_positions):
             p.resetJointState(self.gripper_id, joint_index, joint_position)
@@ -265,9 +263,9 @@ class ThreeFingerGripper(Gripper):
         self.remove_temporary_lock()
     
     def enable_friction(self):
-        """Enable lateral friction for each of the gripper's finger links."""
+        """Enable higher lateral friction for each of the gripper's finger links."""
         for link in range(self.num_joints):
-            p.changeDynamics(self.gripper_id, link, lateralFriction=1.0)
+            p.changeDynamics(self.gripper_id, link, lateralFriction=5.0)
 
     def lift_gripper(self, velocity=0.1, duration=3.0):
         """Lifts the gripper using position control over the specified duration."""
@@ -320,13 +318,19 @@ class Cube(Block):
         self.load_block()
 
     def load_block(self):
-        """Load the cube URDF."""
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        urdf_path = os.path.join(script_dir, "cube_small.urdf")
-        if not os.path.exists(urdf_path):
-            raise FileNotFoundError(f"URDF file not found: {urdf_path}")
-        self.block_id = p.loadURDF(urdf_path, self.initial_position, self.initial_orientation)
-        p.changeDynamics(self.block_id, -1, mass=0.1, linearDamping=0.01, angularDamping=0.01)
+        self.block_id = p.loadURDF(
+            "cube_small.urdf", 
+            self.initial_position, 
+            self.initial_orientation
+        )
+        # Increase friction for the block
+        p.changeDynamics(
+            self.block_id, -1, 
+            lateralFriction=5.0, 
+            mass=0.1, 
+            linearDamping=0.01, 
+            angularDamping=0.01
+        )
 
     def reset(self):
         """Reset the block to its initial state."""
@@ -352,6 +356,18 @@ class GraspSimulator:
         # Load the plane
         self.plane_id = p.loadURDF("plane.urdf")
         print("Plane added to the simulation.")
+        
+        # After loading the plane and the gripper, disable collisions
+        p.setCollisionFilterPair(self.plane_id, self.gripper.gripper_id, -1, -1, enableCollision=0)
+
+        # After loading the plane and the gripper
+        plane_id = self.plane_id
+        gripper_id = self.gripper.gripper_id
+        num_gripper_joints = p.getNumJoints(gripper_id)
+
+        # Disable collisions between the plane and all links of the gripper
+        for gripper_link_idx in range(-1, num_gripper_joints):
+            p.setCollisionFilterPair(plane_id, gripper_id, -1, gripper_link_idx, enableCollision=0)
 
     def setup_simulation(self):
         p.connect(p.GUI)
@@ -416,18 +432,30 @@ class GraspSimulator:
 
 
     def run_trials(self):
-        """Run multiple grasp trials."""
-        for i in range(self.num_trials):
-            random_position, random_orientation = self.generate_random_pose()
-            success = self.attempt_grasp(random_position, random_orientation)
-            self.results.append({
-                "trial": i + 1,
-                "position": random_position,
-                "orientation": random_orientation,
-                "success": success
-            })
-            print(f"Trial {i + 1}: {'Success' if success else 'Failure'}")
-        self.export_results()
+        for trial in range(self.num_trials):
+            # Base position and orientation
+            base_position = [0, 0, 0.2]
+            base_orientation_euler = [np.pi, 0, 0]
+
+            # Add Gaussian noise
+            roll_noise = np.random.normal(0, 0.1)
+            pitch_noise = np.random.normal(0, 0.1)
+            yaw_noise = np.random.normal(0, np.pi)
+            z_noise = np.random.normal(0, 0.02)
+
+            # Apply noise
+            noisy_roll = base_orientation_euler[0] + roll_noise
+            noisy_pitch = base_orientation_euler[1] + pitch_noise
+            noisy_yaw = base_orientation_euler[2] + yaw_noise
+            noisy_position = [base_position[0], base_position[1], base_position[2] + z_noise]
+            noisy_orientation = p.getQuaternionFromEuler([noisy_roll, noisy_pitch, noisy_yaw])
+
+            # Reset gripper with noisy position and orientation
+            self.gripper.reset(noisy_position, noisy_orientation)
+
+            # Proceed with the grasp attempt
+            success = self.attempt_grasp(noisy_position, noisy_orientation)
+            self.results.append(success)
 
     def export_results(self):
         """Export trial results to a CSV file."""

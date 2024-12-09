@@ -187,6 +187,7 @@ class ThreeFingerGripper(Gripper):
         # Reset joints to default positions
         for joint_index, joint_position in enumerate(self.default_joint_positions):
             p.resetJointState(self.gripper_id, joint_index, joint_position)
+            
     def preshape_gripper(self):
         # Same as before:
         done = False
@@ -196,7 +197,7 @@ class ThreeFingerGripper(Gripper):
                                         targetPosition=0.4, maxVelocity=2,force=1)
             done = True
         self.open = False
-        self.open = False
+
     def close_gripper(self):
         """Close the gripper using the same logic as the testHand snippet, but ensure joints settle."""
         done = False
@@ -218,11 +219,11 @@ class ThreeFingerGripper(Gripper):
                 p.stepSimulation()
                 time.sleep(1/240.0)
             self.open = False
-            self.remove_temporary_lock()
         # After setting targets, step the simulation a bit to let the joints move
         for _ in range(480):  # about 2 seconds at 240 Hz
             p.stepSimulation()
             time.sleep(1/240.0)
+        self.remove_temporary_lock()
 
         self.open = False
     def getJointPosition(self):
@@ -231,7 +232,7 @@ class ThreeFingerGripper(Gripper):
             pos = p.getJointState(self.gripper_id, i)[0]
             joints.append(pos)
         return joints
-        return joints
+    
     def openGripper(self):
         closed = True
         self.add_temporary_lock()
@@ -261,7 +262,6 @@ class ThreeFingerGripper(Gripper):
                 break
             p.stepSimulation()
         self.open = True
-        self.remove_temporary_lock()
         self.remove_temporary_lock()
     
     def enable_friction(self):

@@ -8,10 +8,10 @@ from scipy.spatial.transform import Rotation as R
 # read data
 data = pd.read_csv("RobotSimulator_v1/grasp_results.csv")
 
-data['position'] = data['position'].apply(ast.literal_eval)
-data[['X', 'Y', 'Z']] = pd.DataFrame(data['position'].tolist(), index=data.index)
+data['position'] = data['position'].str.replace("np.float64", "").str.replace(" ", "").apply(ast.literal_eval)
+data['orientation'] = data['orientation'].str.replace("np.float64", "").str.replace(" ", "").apply(ast.literal_eval)
 
-data['orientation'] = data['orientation'].apply(ast.literal_eval)
+data[['X', 'Y', 'Z']] = pd.DataFrame(data['position'].tolist(), index=data.index)
 data[['qx', 'qy', 'qz', 'qw']] = pd.DataFrame(data['orientation'].tolist(), index=data.index)
 
 

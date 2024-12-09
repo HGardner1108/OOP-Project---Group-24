@@ -337,7 +337,7 @@ class Cube(Block):
 # ========== Grasp Simulator ==========
 class GraspSimulator:
     """Simulates grasping trials."""
-    def __init__(self, num_trials=50, grip_force=1000, gripper_type="ThreeFinger"):
+    def __init__(self, num_trials=50, grip_force=100, gripper_type="ThreeFinger"):
         self.num_trials = num_trials
         self.grip_force = grip_force
         self.gripper_type = gripper_type

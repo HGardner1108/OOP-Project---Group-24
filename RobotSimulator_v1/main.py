@@ -269,27 +269,27 @@ class ThreeFingerGripper(Gripper):
         for link in range(self.num_joints):
             p.changeDynamics(self.gripper_id, link, lateralFriction=1.0)
 
-    def lift_gripper(self, velocity, duration=1.0):
-        """Lift the gripper vertically using velocity control."""
-        # Apply a force to counteract gravity
-        gravity_force = self.mass * 9.81
-        p.applyExternalForce(
-            self.gripper_id,
-            -1,  # Apply force to the base
-            [0, 0, gravity_force],  # Upward force to counteract gravity
-            [0, 0, 0],  # Force is applied at the center of mass
-            p.WORLD_FRAME
-        )
+    def lift_gripper(self, velocity=0.1, duration=3.0):
+        """Lifts the gripper using position control over the specified duration."""
+        # Get the current position and orientation
+        current_pos, current_orn = p.getBasePositionAndOrientation(self.gripper_id)
+        
+        # Calculate target position
+        target_height = current_pos[2] + velocity * duration
+        target_pos = list(current_pos)
+        target_pos[2] = target_height  # Update Z coordinate
 
-        # Set the upward velocity
-        p.resetBaseVelocity(self.gripper_id, linearVelocity=[0, 0, velocity])
+        # Number of simulation steps
+        time_step = 1./240.  # Adjust according to your simulation time step
+        steps = int(duration / time_step)
+        z_positions = np.linspace(current_pos[2], target_height, steps)
 
-        # Step the simulation for the specified duration
-        for _ in range(int(duration / 0.01)):  # Assuming a timestep of 0.01s
+        # Move the gripper incrementally
+        for z in z_positions:
+            p.resetBasePositionAndOrientation(self.gripper_id, [current_pos[0], current_pos[1], z], current_orn)
             p.stepSimulation()
-            time.sleep(0.01)
-        # Stop the gripper
-        p.resetBaseVelocity(self.gripper_id, linearVelocity=[0, 0, 0])
+            time.sleep(time_step)
+        print(f"Gripper lifted to height: {target_height}")
     time.sleep(1.0)
 
 

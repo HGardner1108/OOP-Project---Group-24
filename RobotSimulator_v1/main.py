@@ -3,6 +3,7 @@ import pybullet_data
 import numpy as np
 import time
 import os
+import csv
 from abc import ABC, abstractmethod
 
 class Block(ABC):
@@ -267,10 +268,25 @@ class GraspSimulator:
         block_pos = p.getBasePositionAndOrientation(self.block.block_id)[0]
         success = len(contact_points) > 0 and block_pos[2] > 0.1
         
-        print(f"Contact points: {len(contact_points)}")
-        print(f"Block height: {block_pos[2]}")
-        print(f"Grasp {'successful' if success else 'failed'}")
+        # Format position and orientation for CSV
+        pos_str = f"[np.float64({position[0]}), np.float64({position[1]}), {position[2]}]"
+        orn_str = str(orientation)  # Quaternion already in correct format
         
+        # Append result to CSV
+        csv_file = 'grasp_results.csv'
+        
+        # Create file with header if it doesn't exist
+        if not os.path.exists(csv_file):
+            with open(csv_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['position', 'orientation', 'success'])
+        
+        # Append result
+        with open(csv_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([pos_str, orn_str, success])
+        
+        print(f"Results appended to {csv_file}")
         return success
 
     def reset_for_next_trial(self):
@@ -278,19 +294,23 @@ class GraspSimulator:
         self.block.reset()
         
         # Generate noisy pose
-        base_pos = [0, 0, 0.2]  # Lower initial position
+        base_pos = [0, 0, 0.2]  # Initial position
         base_euler = [np.pi, 0, 0]
         
-        # Add noise
-        pos_noise = np.random.normal(0, 0.02, 3)
+        # Add noise to all position coordinates
+        pos_noise = np.random.normal(0, 0.02, 3)  # noise for x, y, z
         rot_noise = [
             np.random.normal(0, 0.1),
             np.random.normal(0, 0.1),
             np.random.normal(0, np.pi)
         ]
         
-        # Apply noise
-        noisy_pos = [base_pos[i] + pos_noise[i] for i in range(3)]
+        # Apply noise to all coordinates
+        noisy_pos = [
+            base_pos[0] + pos_noise[0],  # x
+            base_pos[1] + pos_noise[1],  # y
+            base_pos[2] + pos_noise[2]   # z
+        ]
         noisy_euler = [base_euler[i] + rot_noise[i] for i in range(3)]
         noisy_orn = p.getQuaternionFromEuler(noisy_euler)
         

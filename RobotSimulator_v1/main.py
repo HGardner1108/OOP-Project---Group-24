@@ -332,6 +332,6 @@ class GraspSimulator:
             self.results.append(success)
 
 if __name__ == "__main__":
-    simulator = GraspSimulator(num_trials=10)
+    simulator = GraspSimulator(num_trials=100)
     simulator.run_trials()
     p.disconnect()

@@ -1,301 +1,11 @@
 import pybullet as p
 import pybullet_data
-import time
 import numpy as np
+import time
 import os
-import csv
 from abc import ABC, abstractmethod
 
-# ========== Abstract Gripper Class ==========
-class Gripper(ABC):
-    """Abstract base class for different types of grippers."""
-
-    @abstractmethod
-    def load_gripper(self):
-        pass
-
-    @abstractmethod
-    def preshape_gripper(self):
-        pass
-
-    @abstractmethod
-    def close_gripper(self):
-        pass
-
-    @abstractmethod
-    def reset(self, position, orientation):
-        pass
-
-    @abstractmethod
-    def lift_gripper(self, target_lift_position, orientation, num_steps=100):
-        pass
-
-    @abstractmethod
-    def openGripper(self):
-        pass
-
-
-# ========== TwoFingerGripper ==========
-class TwoFingerGripper(Gripper):
-    """Two-pronged gripper."""
-    def __init__(self, grip_force=1):
-        self.grip_force = grip_force
-        self.default_orientation = p.getQuaternionFromEuler([np.pi, 0, 0])  # Face downwards
-        self.default_joint_positions = [0.550569, 0.0, 0.549657, 0.0]  # Reference joint positions
-        self.gripper_id = self.load_gripper()
-        self.num_joints = p.getNumJoints(self.gripper_id)
-        self.open = True  # start as open by default after reset
-
-        # Disable gravity for the gripper
-        p.changeDynamics(self.gripper_id, -1, mass=0, linearDamping=0, angularDamping=0)
-
-    def load_gripper(self):
-        """Load the two-pronged gripper URDF."""
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        gripper_id = p.loadURDF("pr2_gripper.urdf", [0, 0, 0], self.default_orientation,
-                                globalScaling=1, useFixedBase=False)
-        # Set initial joint positions
-        for joint_index, joint_position in enumerate(self.default_joint_positions):
-            p.resetJointState(gripper_id, joint_index, joint_position)
-        print("Two-pronged gripper loaded with initial joint positions.")
-        return gripper_id
-
-    def preshape_gripper(self):
-        """(Low-level) Move the gripper fingers into a preshape configuration."""
-        for joint in [0, 2]:  # PR2 gripper's fingers
-            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
-                                    targetPosition=0.4, maxVelocity=2, force=self.grip_force)
-        p.stepSimulation()
-        time.sleep(1.0)
-
-    def close_gripper(self):
-        """(Low-level) Close the gripper."""
-        for joint in [0, 2]:
-            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
-                                    targetPosition=0.0, maxVelocity=1, force=self.grip_force)
-        for _ in range(240):  # Simulate for 1 second
-            p.stepSimulation()
-            time.sleep(1 / 240.0)
-        self.open = False
-
-    def reset(self, position, orientation):
-        """Reset the gripper to the given position and orientation."""
-        p.resetBasePositionAndOrientation(self.gripper_id, position, orientation)
-        # Reset joints to default positions
-        for joint_index, joint_position in enumerate(self.default_joint_positions):
-            p.resetJointState(self.gripper_id, joint_index, joint_position)
-        # After resetting, open the gripper so it's ready for next action
-        self.openGripper()
-
-    def lift_gripper(self, target_lift_position, orientation, num_steps=100):
-        """Lift the gripper to a specified position."""
-        if not self.open:
-            for joint in [0, 2]:
-                p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
-                                        targetPosition=0.0, maxVelocity=1, force=self.grip_force)
-
-        current_position, _ = p.getBasePositionAndOrientation(self.gripper_id)
-        for step in range(num_steps):
-            interpolated_position = [
-                current_position[0] + (target_lift_position[0] - current_position[0]) * step / num_steps,
-                current_position[1] + (target_lift_position[1] - current_position[1]) * step / num_steps,
-                current_position[2] + (target_lift_position[2] - current_position[2]) * step / num_steps,
-            ]
-            p.resetBasePositionAndOrientation(self.gripper_id, interpolated_position, orientation)
-
-            if not self.open:
-                for joint in [0, 2]:
-                    p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
-                                            targetPosition=0.0, maxVelocity=1, force=self.grip_force)
-
-            p.stepSimulation()
-            time.sleep(1 / 240.0)
-        time.sleep(1.0)
-
-    def openGripper(self):
-        """Open the gripper more fully."""
-        for joint in [0, 2]:
-            p.setJointMotorControl2(self.gripper_id, joint, p.POSITION_CONTROL,
-                                    targetPosition=0.9, maxVelocity=2, force=self.grip_force)
-        for _ in range(240):
-            p.stepSimulation()
-            time.sleep(1/240.0)
-        self.open = True
-
-
-# ========== ThreeFingerGripper ==========
-class ThreeFingerGripper(Gripper):
-    """A three-fingered gripper."""
-    def __init__(self, grip_force=1):
-        self.grip_force = grip_force
-        self.gripper_id = self.load_gripper()
-        self.num_joints = p.getNumJoints(self.gripper_id)
-        self.default_joint_positions = [0.05] * self.num_joints
-        self.open = False
-        self.constraint_id = None  # ID of the temporary constraint
-        self.mass = p.getDynamicsInfo(self.gripper_id, -1)[0]
-    
-        # Enable friction for interaction
-        self.enable_friction()
-    
-        # Set default joint positions
-        for joint_index, joint_position in enumerate(self.default_joint_positions):
-            p.resetJointState(self.gripper_id, joint_index, joint_position)
-            
-    def load_gripper(self):
-        """Load the three-fingered gripper URDF."""
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(script_dir, "Robots/grippers/threeFingers/sdh/sdh.urdf")
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"URDF file not found: {path}")
-
-        initial_position = [0, 0, 0.21]
-        initial_orientation = p.getQuaternionFromEuler([np.pi, 0, 0])
-        gripper_id = p.loadURDF(path, initial_position, initial_orientation, globalScaling=1, useFixedBase=False)
-        return gripper_id
-    
-    def add_temporary_lock(self):
-        """Lock the gripper in place by adding a temporary constraint."""
-        position, orientation = p.getBasePositionAndOrientation(self.gripper_id)
-        self.constraint_id = p.createConstraint(
-            self.gripper_id,
-            -1,
-            -1,
-            -1,
-            p.JOINT_FIXED,
-            [0, 0, 0],
-            [0, 0, 0],
-            position,
-            childFrameOrientation=orientation,
-        )
-        if self.constraint_id is None:
-            raise RuntimeError("Failed to create a temporary lock for the gripper.")
-        
-    def remove_temporary_lock(self):
-        """Remove the temporary constraint locking the gripper."""
-        if self.constraint_id is not None:
-            p.removeConstraint(self.constraint_id)
-            self.constraint_id = None
-
-
-    def reset(self, position, orientation):
-        """Reset the gripper to the given position and orientation."""
-        p.resetBasePositionAndOrientation(self.gripper_id, position, orientation)
-        # Reset joints to default positions
-        for joint_index, joint_position in enumerate(self.default_joint_positions):
-            p.resetJointState(self.gripper_id, joint_index, joint_position)
-            
-    def preshape_gripper(self):
-        # Same as before:
-        done = False
-        while not done:
-            for i in [2,5,8]:
-                p.setJointMotorControl2(self.gripper_id, i, p.POSITION_CONTROL,
-                                        targetPosition=0.4, maxVelocity=2,force=1)
-            done = True
-        self.open = False
-
-    def close_gripper(self):
-        """Close the gripper using the same logic as the testHand snippet, but ensure joints settle."""
-        done = False
-        while not done:
-            for i in [1,4]:
-                p.setJointMotorControl2(self.gripper_id, i, p.POSITION_CONTROL, 
-                                        targetPosition=0.05, maxVelocity=1, force=1)
-            p.setJointMotorControl2(self.gripper_id, 7, p.POSITION_CONTROL,
-                                    targetPosition=0.05, maxVelocity=1, force=2)
-            done = True
-            done = True
-            self.add_temporary_lock()
-            for joint_index in [1, 4]:
-                p.setJointMotorControl2(self.gripper_id, joint_index, p.POSITION_CONTROL,
-                                        targetPosition=0.05, maxVelocity=1, force=self.grip_force)
-            p.setJointMotorControl2(self.gripper_id, 7, p.POSITION_CONTROL,
-                                    targetPosition=0.05, maxVelocity=1, force=self.grip_force)
-            for _ in range(480):
-                p.stepSimulation()
-                time.sleep(1/240.0)
-            self.open = False
-        # After setting targets, step the simulation a bit to let the joints move
-        for _ in range(480):  # about 2 seconds at 240 Hz
-            p.stepSimulation()
-            time.sleep(1/240.0)
-        self.remove_temporary_lock()
-
-        self.open = False
-    def getJointPosition(self):
-        joints = []
-        for i in range(self.num_joints):
-            pos = p.getJointState(self.gripper_id, i)[0]
-            joints.append(pos)
-        return joints
-    
-    def openGripper(self):
-        closed = True
-        self.add_temporary_lock()
-        iteration = 0
-        while(closed and not self.open):
-            joints = self.getJointPosition()
-            closed = False
-            for k in range(self.num_joints):
-                goal = 0.9
-                if k in [2,5,8] and joints[k] >= goal:
-                    p.setJointMotorControl2(self.gripper_id, k, p.POSITION_CONTROL,
-                                            targetPosition=joints[k] - 0.05,
-                                            maxVelocity=2,force=5)
-                    closed = True
-                elif k in [3,6,9] and joints[k] <= goal:
-                    p.setJointMotorControl2(self.gripper_id, k, p.POSITION_CONTROL,
-                                            targetPosition=joints[k] - 0.05,
-                                            maxVelocity=2,force=5)
-                    closed = True
-                elif k in [1,4,7] and joints[k] <= goal:
-                    p.setJointMotorControl2(self.gripper_id, k, p.POSITION_CONTROL,
-                                            targetPosition=joints[k] - 0.05,
-                                            maxVelocity=2,force=5)
-                    closed = True
-            iteration += 1
-            if iteration > 10000:
-                break
-            p.stepSimulation()
-        self.open = True
-        self.remove_temporary_lock()
-    
-    def enable_friction(self):
-        """Enable higher lateral friction for each of the gripper's finger links."""
-        for link in range(self.num_joints):
-            p.changeDynamics(self.gripper_id, link, lateralFriction=5.0)
-
-    def lift_gripper(self, velocity=0.1, duration=3.0):
-        """Lifts the gripper using position control over the specified duration."""
-        # Get the current position and orientation
-        current_pos, current_orn = p.getBasePositionAndOrientation(self.gripper_id)
-        
-        # Calculate target position
-        target_height = current_pos[2] + velocity * duration
-        target_pos = list(current_pos)
-        target_pos[2] = target_height  # Update Z coordinate
-
-        # Number of simulation steps
-        time_step = 1./240.  # Adjust according to your simulation time step
-        steps = int(duration / time_step)
-        z_positions = np.linspace(current_pos[2], target_height, steps)
-
-        # Move the gripper incrementally
-        for z in z_positions:
-            p.resetBasePositionAndOrientation(self.gripper_id, [current_pos[0], current_pos[1], z], current_orn)
-            p.stepSimulation()
-            time.sleep(time_step)
-        print(f"Gripper lifted to height: {target_height}")
-    time.sleep(1.0)
-
-
-
-# ========== Abstract Block Class ==========
 class Block(ABC):
-    """Abstract base class for different types of blocks."""
-
     @abstractmethod
     def load_block(self):
         pass
@@ -304,9 +14,7 @@ class Block(ABC):
     def reset(self):
         pass
 
-# ========== Cube Block ==========
 class Cube(Block):
-    """Simple cube object."""
     def __init__(self, initial_position=None, initial_orientation=None):
         if initial_position is None:
             initial_position = [0, 0, 0.025]
@@ -314,165 +22,296 @@ class Cube(Block):
             initial_orientation = [0, 0, 0, 1]
         self.initial_position = initial_position
         self.initial_orientation = initial_orientation
-        self.block_id = None
-        self.load_block()
+        self.block_id = self.load_block()
 
     def load_block(self):
-        self.block_id = p.loadURDF(
-            "cube_small.urdf", 
-            self.initial_position, 
-            self.initial_orientation
-        )
-        # Increase friction for the block
-        p.changeDynamics(
-            self.block_id, -1, 
-            lateralFriction=5.0, 
-            mass=0.1, 
-            linearDamping=0.01, 
-            angularDamping=0.01
-        )
+        block_id = p.loadURDF("cube_small.urdf", self.initial_position, self.initial_orientation)
+        p.changeDynamics(block_id, -1, mass=0.1, lateralFriction=1.0)
+        return block_id
 
     def reset(self):
-        """Reset the block to its initial state."""
         p.resetBasePositionAndOrientation(self.block_id, self.initial_position, self.initial_orientation)
-        p.changeDynamics(self.block_id, -1, mass=0.1, linearDamping=0.01, angularDamping=0.01)
 
-
-# ========== Grasp Simulator ==========
-class GraspSimulator:
-    """Simulates grasping trials."""
-    def __init__(self, num_trials=50, grip_force=100, gripper_type="ThreeFinger"):
-        self.num_trials = num_trials
+class ThreeFingerGripper:
+    def __init__(self, grip_force=100):
         self.grip_force = grip_force
-        self.gripper_type = gripper_type
-        self.gripper = None
-        self.block = None
+        self.gripper_id = self.load_gripper()
+        self.num_joints = p.getNumJoints(self.gripper_id)
+        print(f"Number of joints: {self.num_joints}")
+        
+        # Initialize all joints to closed position
+        self.default_joint_positions = [0.05] * self.num_joints
+        self.open = False
+        
+        # Create permanent base constraint
+        pos = [0, 0, 0.2]
+        orn = p.getQuaternionFromEuler([np.pi, 0, 0])
+        self.base_constraint = p.createConstraint(
+            self.gripper_id, -1, -1, -1,
+            p.JOINT_FIXED,
+            [0, 0, 0], [0, 0, 0], pos,
+            childFrameOrientation=orn
+        )
+        p.changeConstraint(self.base_constraint, pos, orn, maxForce=100)
+        
+        # Disable collisions with plane
+        self.disable_plane_collisions()
+        
+        # Set initial joint positions
+        for joint_index in range(self.num_joints):
+            p.resetJointState(self.gripper_id, joint_index, self.default_joint_positions[joint_index])
+            
+        self.enable_friction()
+
+    def disable_plane_collisions(self):
+        """Disable collisions between gripper and ground plane"""
+        # Ground plane has ID 0
+        for link in range(-1, self.num_joints):
+            p.setCollisionFilterPair(0, self.gripper_id, -1, link, enableCollision=0)
+
+    def load_gripper(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, "Robots/grippers/threeFingers/sdh/sdh.urdf")
+        initial_pos = [0, 0, 0.21]
+        initial_orn = p.getQuaternionFromEuler([np.pi, 0, 0])
+        gripper_id = p.loadURDF(path, initial_pos, initial_orn, useFixedBase=False)
+        return gripper_id
+
+    def enable_friction(self):
+        for link in range(self.num_joints):
+            p.changeDynamics(self.gripper_id, link, lateralFriction=5.0)
+
+    def move_to(self, target_pos, target_orn, max_force=50):
+        p.changeConstraint(
+            self.base_constraint,
+            target_pos,
+            jointChildFrameOrientation=target_orn,
+            maxForce=max_force
+        )
+        time.sleep(0.01)
+
+    def lift_gripper(self, height=0.7, max_force=500):
+        """Lift gripper by changing constraint position with appropriate force."""
+        current_pos, current_orn = p.getBasePositionAndOrientation(self.gripper_id)
+        
+        # Move in steps to ensure stability
+        steps = 10
+        current_height = current_pos[2]
+        height_increment = (height - current_height) / steps
+        
+        for i in range(steps):
+            target_height = current_height + height_increment
+            target_pos = [current_pos[0], current_pos[1], target_height]
+            p.changeConstraint(
+                self.base_constraint, 
+                target_pos,
+                current_orn,
+                maxForce=max_force
+            )
+            for _ in range(120):  # Allow physics to settle
+                p.stepSimulation()
+                time.sleep(1/240)
+            current_height = target_height
+
+        print(f"Lifted gripper to height: {height}")
+
+    def close_gripper(self):
+        # Close main finger joints
+        for joint_id in [1, 4, 7]:
+            p.setJointMotorControl2(
+                self.gripper_id,
+                joint_id,
+                p.POSITION_CONTROL,
+                targetPosition=0.05,
+                maxVelocity=1.0,
+                force=self.grip_force
+            )
+        
+        # Allow time for closure with physics steps
+        for _ in range(480):  # 2 seconds at 240Hz
+            p.stepSimulation()
+            time.sleep(1/240)
+        self.open = False
+
+    def open_gripper(self):
+        """Open gripper using example code logic"""
+        closed = True
+        iteration = 0
+        while(closed and not self.open):
+            joints = self.getJointPosition()
+            closed = False
+            for k in range(self.num_joints):
+                #lower finger joints
+                if k in [2, 5, 8]:
+                    goal = 0.9
+                    if joints[k] >= goal:    
+                        p.setJointMotorControl2(self.gripper_id, k, p.POSITION_CONTROL,
+                                            targetPosition=joints[k] - 0.05, 
+                                            maxVelocity=2, force=5)   
+                        closed = True
+                #Upper finger joints             
+                elif k in [3, 6, 9]:
+                    goal = 0.9
+                    if joints[k] <= goal:
+                        p.setJointMotorControl2(self.gripper_id, k, p.POSITION_CONTROL,
+                                            targetPosition=joints[k] - 0.05,
+                                            maxVelocity=2, force=5)
+                        closed = True
+                #Base finger joints
+                elif k in [1, 4, 7]:
+                    pos = 0.9
+                    if joints[k] <= pos:
+                        p.setJointMotorControl2(self.gripper_id, k, p.POSITION_CONTROL,
+                                            targetPosition=joints[k] - 0.05,
+                                            maxVelocity=2, force=5)
+                        closed = True
+            iteration += 1
+            if iteration > 10000:
+                break
+            p.stepSimulation()
+        self.open = True
+
+    def getJointPosition(self):
+        joints = []
+        for i in range(self.num_joints):
+            pos = p.getJointState(self.gripper_id, i)[0]
+            joints.append(pos)
+        return joints
+
+    def preshape_gripper(self):
+        # Set preshape position for secondary joints
+        for joint_id in [2, 5, 8]:
+            p.setJointMotorControl2(
+                self.gripper_id,
+                joint_id,
+                p.POSITION_CONTROL,
+                targetPosition=0.4,
+                maxVelocity=2.0,
+                force=self.grip_force
+            )
+        
+        # Allow time for preshaping
+        for _ in range(120):
+            p.stepSimulation()
+            time.sleep(1/240)
+
+    def reset(self, position, orientation):
+        # Reset gripper position and orientation using constraint
+        p.changeConstraint(
+            self.base_constraint,
+            position,
+            jointChildFrameOrientation=orientation,
+            maxForce=100
+        )
+        
+        # Reset joint positions
+        for joint_index, position in enumerate(self.default_joint_positions):
+            p.resetJointState(self.gripper_id, joint_index, position)
+        
+        # Allow time for reset
+        for _ in range(60):
+            p.stepSimulation()
+            time.sleep(1/240)
+
+class GraspSimulator:
+    def __init__(self, num_trials=10):
+        self.num_trials = num_trials
+        self.setup_simulation()
+        self.gripper = ThreeFingerGripper(grip_force=100)
+        self.block = Cube()
         self.results = []
 
-        self.setup_simulation()
-        self.gripper = self.create_gripper(self.grip_force, self.gripper_type)
-        self.block = Cube()
-        
-        # Load the plane
-        self.plane_id = p.loadURDF("plane.urdf")
-        print("Plane added to the simulation.")
-        
-        # After loading the plane and the gripper, disable collisions
-        p.setCollisionFilterPair(self.plane_id, self.gripper.gripper_id, -1, -1, enableCollision=0)
-
-        # After loading the plane and the gripper
-        plane_id = self.plane_id
-        gripper_id = self.gripper.gripper_id
-        num_gripper_joints = p.getNumJoints(gripper_id)
-
-        # Disable collisions between the plane and all links of the gripper
-        for gripper_link_idx in range(-1, num_gripper_joints):
-            p.setCollisionFilterPair(plane_id, gripper_id, -1, gripper_link_idx, enableCollision=0)
-
     def setup_simulation(self):
-        p.connect(p.GUI)
+        # Initialize GUI physics client
+        physicsClient = p.connect(p.GUI)
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
+        p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 1)
         p.resetSimulation()
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(0)
-        p.setTimeStep(1 / 240.0)
+        p.setTimeStep(1/240.0)
+        # Load ground plane
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        self.plane_id = p.loadURDF("plane.urdf")
 
-    def create_gripper(self, grip_force, gripper_type):
-        if gripper_type == "TwoFinger":
-            return TwoFingerGripper(grip_force)
-        elif gripper_type == "ThreeFinger":
-            return ThreeFingerGripper(grip_force)
-        else:
-            raise ValueError(f"Unknown gripper type: {gripper_type}")
-
-    def generate_random_pose(self, height=0.3, max_angle=np.pi / 12):
-        """Generate a random pose for the gripper around the block."""
-        position_noise = np.random.uniform(-0.02, 0.02, size=2)
-        random_position = [
-            self.block.initial_position[0] + position_noise[0],
-            self.block.initial_position[1] + position_noise[1],
-            self.block.initial_position[2] + height
-        ]
-        roll = np.random.uniform(-max_angle, max_angle)
-        pitch = np.random.uniform(-max_angle, max_angle) + np.pi / 2
-        yaw = np.random.uniform(-max_angle, max_angle) + np.pi
-        random_orientation = p.getQuaternionFromEuler([roll, pitch, yaw])
-        return random_position, random_orientation
-
-    def wait_for_enter(self, message):
-        pass
-
-    def attempt_grasp(self, position, orientation, lift_height=0.3):
-        """Attempt a grasp and check if successful."""
-        self.wait_for_enter("Press ENTER to reset the gripper to the given position/orientation...")
+    def attempt_grasp(self, position, orientation):
+        print("\nStarting grasp attempt...")
+        
         self.gripper.reset(position, orientation)
-
-        self.wait_for_enter("Press ENTER to open the gripper (it was closed initially)...")
-        self.gripper.openGripper()
-
-        self.wait_for_enter("Press ENTER to reset the block...")
+        
+        # Open gripper before spawning block
+        print("Opening gripper...")
+        self.gripper.open_gripper()
+        
+        # Debug print joint positions
+        joints = self.gripper.getJointPosition()
+        print("Joint positions after opening:", joints)
+        
         self.block.reset()
-
-        self.wait_for_enter("Press ENTER to close (grasp) the gripper...")
+        time.sleep(0.5)
+        
+        # Increase grip force for more reliable closing
+        self.gripper.grip_force = 500  # Increase grip force
         self.gripper.close_gripper()
+        
+        # Debug print joint positions
+        joints = self.gripper.getJointPosition()
+        print("Joint positions after closing:", joints)
+        
+        # Increase maxForce for lifting
+        self.gripper.lift_gripper(height=0.4, max_force=1000)
+        time.sleep(2.0)
+        
+        # Check grasp success
+        contact_points = p.getContactPoints(self.gripper.gripper_id, self.block.block_id)
+        block_pos = p.getBasePositionAndOrientation(self.block.block_id)[0]
+        success = len(contact_points) > 0 and block_pos[2] > 0.1
+        
+        print(f"Contact points: {len(contact_points)}")
+        print(f"Block height: {block_pos[2]}")
+        print(f"Grasp {'successful' if success else 'failed'}")
+        
+        return success
 
-        self.wait_for_enter("Press ENTER to lift the gripper...")
-        self.gripper.lift_gripper(velocity=0.1, duration=3.0)  # Example: 0.1 m/s for 3 seconds
-
-        initial_position = p.getBasePositionAndOrientation(self.block.block_id)[0]
-        time.sleep(1.0)
-        final_position = p.getBasePositionAndOrientation(self.block.block_id)[0]
-
-        if final_position[2] < initial_position[2] - 0.01:
-            print("Block slipped.")
-            return False
-
-        print("Grasp successful!")
-        return True
-
+    def reset_for_next_trial(self):
+        # Reset block first
+        self.block.reset()
+        
+        # Generate noisy pose
+        base_pos = [0, 0, 0.2]  # Lower initial position
+        base_euler = [np.pi, 0, 0]
+        
+        # Add noise
+        pos_noise = np.random.normal(0, 0.02, 3)
+        rot_noise = [
+            np.random.normal(0, 0.1),
+            np.random.normal(0, 0.1),
+            np.random.normal(0, np.pi)
+        ]
+        
+        # Apply noise
+        noisy_pos = [base_pos[i] + pos_noise[i] for i in range(3)]
+        noisy_euler = [base_euler[i] + rot_noise[i] for i in range(3)]
+        noisy_orn = p.getQuaternionFromEuler(noisy_euler)
+        
+        # Reset gripper with noise
+        self.gripper.reset(noisy_pos, noisy_orn)
+        time.sleep(0.5)  # Allow physics to settle
+        
+        return noisy_pos, noisy_orn
 
     def run_trials(self):
         for trial in range(self.num_trials):
-            # Base position and orientation
-            base_position = [0, 0, 0.2]
-            base_orientation_euler = [np.pi, 0, 0]
-
-            # Add Gaussian noise
-            roll_noise = np.random.normal(0, 0.1)
-            pitch_noise = np.random.normal(0, 0.1)
-            yaw_noise = np.random.normal(0, np.pi)
-            z_noise = np.random.normal(0, 0.02)
-
-            # Apply noise
-            noisy_roll = base_orientation_euler[0] + roll_noise
-            noisy_pitch = base_orientation_euler[1] + pitch_noise
-            noisy_yaw = base_orientation_euler[2] + yaw_noise
-            noisy_position = [base_position[0], base_position[1], base_position[2] + z_noise]
-            noisy_orientation = p.getQuaternionFromEuler([noisy_roll, noisy_pitch, noisy_yaw])
-
-            # Reset gripper with noisy position and orientation
-            self.gripper.reset(noisy_position, noisy_orientation)
-
-            # Proceed with the grasp attempt
-            success = self.attempt_grasp(noisy_position, noisy_orientation)
+            print(f"\nStarting trial {trial + 1}/{self.num_trials}")
+            
+            # Reset simulation with noise
+            position, orientation = self.reset_for_next_trial()
+            
+            # Attempt grasp
+            success = self.attempt_grasp(position, orientation)
             self.results.append(success)
 
-    def export_results(self):
-        """Export trial results to a CSV file."""
-        csv_file = "grasp_results.csv"
-        with open(csv_file, mode="w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=["trial", "position", "orientation", "success"])
-            writer.writeheader()
-            for result in self.results:
-                writer.writerow(result)
-        print(f"Results exported to {csv_file}")
-
-    def run(self):
-        """Run the simulation."""
-        self.run_trials()
-        p.disconnect()
-
-
 if __name__ == "__main__":
-    simulator = GraspSimulator(num_trials=50, grip_force=100, gripper_type="ThreeFinger")
-    simulator.run()
+    simulator = GraspSimulator(num_trials=10)
+    simulator.run_trials()
+    p.disconnect()

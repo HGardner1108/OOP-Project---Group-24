@@ -17,7 +17,7 @@ data[['qx', 'qy', 'qz', 'qw']] = pd.DataFrame(data['orientation'].tolist(), inde
 
 def quaternion_to_vector(x, y, z, w):
     quat = R.from_quat([x, y, z, w])
-    vector = quat.apply([1, 0, 0])
+    vector = quat.apply([0, 0, 1])
     #print(vector)
     #print(quat)
     return vector

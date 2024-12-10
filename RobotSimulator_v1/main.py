@@ -5,9 +5,7 @@ import time
 import os
 import csv
 from abc import ABC, abstractmethod
-from classifier_module import GraspClassifier
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
+
 
 
 class Block(ABC):
@@ -340,114 +338,4 @@ if __name__ == "__main__":
     simulator.run_trials()
     p.disconnect()
 
-
-# Load and preprocess the data
-classifier = GraspClassifier(n_estimators=100, max_depth=10, random_state=42)
-
-# Load the grasp results
-X, y = classifier.load_data('grasp_results.csv')
-
-# Split the data into train and test sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-
-# Apply PCA to reduce dimensionality (optional, you can skip this if you don't need PCA)
-X_train_pca, X_test_pca = classifier.apply_pca(X_train, X_test)
-
-# Train the classifier
-print("Training the Random Forest classifier...")
-classifier.train(X_train_pca, y_train)
-
-# Evaluate the classifier
-print("Evaluating the Random Forest classifier...")
-report, matrix = classifier.evaluate(X_test_pca, y_test)
-print("Classification Report:")
-print(report)
-print("Confusion Matrix:")
-print(matrix)
-
-# Plot the ROC curve
-classifier.plot_roc_curve(X_test_pca, y_test)
-
-# Perform cross-validation to estimate model performance
-mean_score, std_score = classifier.cross_validate(X_train_pca, y_train)
-print(f"Cross-validation results: Mean accuracy = {mean_score:.4f}, Standard deviation = {std_score:.4f}")
-
-# Analyze performance with increasing data sizes
-train_sizes = np.linspace(0.1, 1.0, 10)
-performances = classifier.data_size_performance(X_train_pca, y_train, X_test_pca, y_test, train_sizes)
-
-# Plot performance as data size increases
-plt.figure(figsize=(8, 6))
-plt.plot(train_sizes * len(X_train), performances, marker='o')
-plt.xlabel("Training Set Size")
-plt.ylabel("Accuracy")
-plt.title("Classifier Performance vs. Training Set Size")
-plt.grid(True)
-plt.show()
-
-from classifier_module import GraspClassifier
-from plotting_module import plot_confusion_matrix, plot_roc_curve, plot_performance_vs_data_size, plot_grasp_results_from_csv,plot_feature_importance
-import matplotlib.pyplot as plt
-import numpy as np
-from sklearn.model_selection import train_test_split
-
-# Load and preprocess the data
-classifier = GraspClassifier(n_estimators=100, max_depth=10, random_state=42)
-
-# Load the grasp results
-X, y = classifier.load_data('grasp_results.csv')  # Load data from CSV
-
-# Split the data into train and test sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-
-# Apply PCA to reduce dimensionality (optional, you can skip this if you don't need PCA)
-X_train_pca, X_test_pca = classifier.apply_pca(X_train, X_test)
-
-# Train the classifier
-print("Training the Random Forest classifier...")
-classifier.train(X_train_pca, y_train)
-
-# Evaluate the classifier
-print("Evaluating the Random Forest classifier...")
-y_pred = classifier.predict(X_test_pca)
-y_pred_prob = classifier.classifier.predict_proba(X_test_pca)[:, 1]  # Probability for ROC curve
-report, matrix = classifier.evaluate(X_test_pca, y_test)
-print("Classification Report:")
-print(report)
-print("Confusion Matrix:")
-print(matrix)
-
-# Plot the confusion matrix
-plot_confusion_matrix(y_test, y_pred)
-
-# Plot the ROC curve
-plot_roc_curve(y_test, y_pred_prob)
-
-# Perform cross-validation to estimate model performance
-mean_score, std_score = classifier.cross_validate(X_train_pca, y_train)
-print(f"Cross-validation results: Mean accuracy = {mean_score:.4f}, Standard deviation = {std_score:.4f}")
-
-# Analyze performance with increasing data sizes
-train_sizes = np.linspace(0.1, 1.0, 10)
-performances = classifier.data_size_performance(X_train_pca, y_train, X_test_pca, y_test, train_sizes)
-
-# Plot performance as data size increases
-plot_performance_vs_data_size(train_sizes, performances)
-
-# Plot feature importance
-plot_feature_importance(classifier.classifier, feature_names=["x", "y", "z", "qx", "qy", "qz", "qw"])
-
-# Plot the grasp results from the CSV file
-plot_grasp_results_from_csv('grasp_results.csv')
-
-from plotting_module import plot_3d_scatter_with_labels, plot_3d_with_vectors
-
-# Define file paths
-csv_file = 'grasp_results.csv'
-output_file_scatter = 'scatter_plot.png'
-output_file_quiver = 'quiver_plot.png'
-
-# Plot graphs
-plot_3d_scatter_with_labels(csv_file, output_file=output_file_scatter)
-plot_3d_with_vectors(csv_file, output_file=output_file_quiver)
 

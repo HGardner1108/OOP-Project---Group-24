@@ -5,44 +5,42 @@ import ast
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-# read data
-data = pd.read_csv("RobotSimulator_v1/grasp_results.csv")
+# Read data
+data = pd.read_csv("grasp_results.csv")
 
+# Clean and parse the data
 data['position'] = data['position'].str.replace("np.float64", "").str.replace(" ", "").apply(ast.literal_eval)
 data['orientation'] = data['orientation'].str.replace("np.float64", "").str.replace(" ", "").apply(ast.literal_eval)
 
 data[['X', 'Y', 'Z']] = pd.DataFrame(data['position'].tolist(), index=data.index)
 data[['qx', 'qy', 'qz', 'qw']] = pd.DataFrame(data['orientation'].tolist(), index=data.index)
 
-
-def quaternion_to_vector(x, y, z, w):
-    quat = R.from_quat([x, y, z, w])
+def quaternion_to_vector(qx, qy, qz, qw):
+    quat = R.from_quat([qx, qy, qz, qw])
     vector = quat.apply([0, 0, 1])
-    #print(vector)
-    #print(quat)
     return vector
 
+# Sample 50 from each class
+success = data[data['success'] == True].sample(n=50, random_state=42)
+failure = data[data['success'] == False].sample(n=50, random_state=42)
 
-success = data[data['success'] == 1]
-failure = data[data['success'] == 0]
+# Combine samples
+sampled_data = pd.concat([success, failure])
 
-fig = plt.figure(figsize=(10, 7))
+# Compute orientation vectors
+vectors = sampled_data.apply(lambda row: quaternion_to_vector(row['qx'], row['qy'], row['qz'], row['qw']), axis=1)
+sampled_data[['u', 'v', 'w']] = pd.DataFrame(vectors.tolist(), index=sampled_data.index)
+
+# Create figure
+fig = plt.figure(figsize=(12, 10))
 ax = fig.add_subplot(111, projection='3d')
 
-ax.scatter(success['X'], success['Y'], success['Z'], c='green', label='Success', alpha=0.6)
-ax.scatter(failure['X'], failure['Y'], failure['Z'], c='red', label='Failure', alpha=0.6)
+# Define cube parameters
+cube_center = [0, 0, 0.025]  # Cube center coordinates
+cube_side = 0.05             # Full side length of the cube
+half_side = cube_side / 2    # Half the length of cube side
 
-for _, row in data.iterrows():
-    x, y, z = row['X'], row['Y'], row['Z']
-    qx, qy, qz, qw = row['qx'], row['qy'], row['qz'], row['qw']
-
-    direction = quaternion_to_vector(qx, qy, qz, qw)
-    ax.quiver(x, y, z, direction[0], direction[1], direction[2], length=qw, color='orange', alpha=0.5)
-
-cube_center = [0, 0, 0.025]
-cube_side = 0.05
-half_side = cube_side / 2
-
+# Define vertices of the cube
 vertices = np.array([
     [cube_center[0] - half_side, cube_center[1] - half_side, cube_center[2] - half_side],  # Bottom-front-left
     [cube_center[0] + half_side, cube_center[1] - half_side, cube_center[2] - half_side],  # Bottom-front-right
@@ -51,15 +49,17 @@ vertices = np.array([
     [cube_center[0] - half_side, cube_center[1] - half_side, cube_center[2] + half_side],  # Top-front-left
     [cube_center[0] + half_side, cube_center[1] - half_side, cube_center[2] + half_side],  # Top-front-right
     [cube_center[0] + half_side, cube_center[1] + half_side, cube_center[2] + half_side],  # Top-back-right
-    [cube_center[0] - half_side, cube_center[1] + half_side, cube_center[2] + half_side]   # Top-back-left
+    [cube_center[0] - half_side, cube_center[1] + half_side, cube_center[2] + half_side],  # Top-back-left
 ])
 
+# Define edges of the cube
 edges = [
-    [0, 1], [1, 2], [2, 3], [3, 0],  # Bottom edges
-    [4, 5], [5, 6], [6, 7], [7, 4],  # Top edges
-    [0, 4], [1, 5], [2, 6], [3, 7]   # Vertical edges
+    [0, 1], [1, 2], [2, 3], [3, 0],   # Bottom edges
+    [4, 5], [5, 6], [6, 7], [7, 4],   # Top edges
+    [0, 4], [1, 5], [2, 6], [3, 7]    # Side edges
 ]
 
+# Plot the cube
 for edge in edges:
     ax.plot(
         [vertices[edge[0], 0], vertices[edge[1], 0]],
@@ -68,32 +68,50 @@ for edge in edges:
         color='blue'
     )
 
+# Plot sampled data with smaller arrows colored by success
+for _, row in sampled_data.iterrows():
+    x, y, z = row['X'], row['Y'], row['Z']
+    u, v, w = row['u'], row['v'], row['w']
+    color = 'green' if row['success'] else 'red'
+    ax.quiver(x, y, z, u, v, w, color=color, length=0.05, normalize=True, linewidth=0.8)
+    ax.scatter(x, y, z, c=color, s=50)
 
-def set_equal_aspect(ax):
+# Set labels and title
+ax.set_xlabel('X Position')
+ax.set_ylabel('Y Position')
+ax.set_zlabel('Z Position')
+ax.set_title('Sampled Grasp Attempts with Orientation Vectors')
+
+# Adjust the aspect ratio to make the scales of x, y, z the same
+def set_axes_equal(ax):
+    '''Make axes of 3D plot have equal scale so that spheres appear as spheres,
+    cubes as cubes, etc.'''
     x_limits = ax.get_xlim3d()
     y_limits = ax.get_ylim3d()
     z_limits = ax.get_zlim3d()
 
-    x_range = abs(x_limits[1] - x_limits[0])
-    y_range = abs(y_limits[1] - y_limits[0])
-    z_range = abs(z_limits[1] - z_limits[0])
-    max_range = max(x_range, y_range, z_range)
-
+    x_range = np.abs(x_limits[1] - x_limits[0])
     x_middle = np.mean(x_limits)
+    y_range = np.abs(y_limits[1] - y_limits[0])
     y_middle = np.mean(y_limits)
+    z_range = np.abs(z_limits[1] - z_limits[0])
     z_middle = np.mean(z_limits)
 
-    ax.set_xlim3d([x_middle - max_range / 2, x_middle + max_range / 2])
-    ax.set_ylim3d([y_middle - max_range / 2, y_middle + max_range / 2])
-    ax.set_zlim3d([z_middle - max_range / 2, z_middle + max_range / 2])
+    # The plot bounding box is a sphere in the data coordinate system
+    plot_radius = 0.5 * max([x_range, y_range, z_range])
 
+    ax.set_xlim3d([x_middle - plot_radius, x_middle + plot_radius])
+    ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
+    ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
 
-set_equal_aspect(ax)
+# Call the function to set equal aspect ratio
+set_axes_equal(ax)
 
-ax.set_title('Gripper Visualisation')
-ax.set_xlabel('Gripper X')
-ax.set_ylabel('Gripper Y')
-ax.set_zlabel('Gripper Z')
-ax.legend()
+# Legend
+legend_elements = [
+    plt.Line2D([0], [0], marker='o', color='w', label='Success', markerfacecolor='green', markersize=10),
+    plt.Line2D([0], [0], marker='o', color='w', label='Failure', markerfacecolor='red', markersize=10)
+]
+ax.legend(handles=legend_elements)
 
 plt.show()

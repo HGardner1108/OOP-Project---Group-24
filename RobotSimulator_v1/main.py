@@ -35,8 +35,32 @@ class Cube(Block):
     def reset(self):
         p.resetBasePositionAndOrientation(self.block_id, self.initial_position, self.initial_orientation)
 
+class CubeLarge(Block):
+    def __init__(self, initial_position=None, initial_orientation=None):
+        if initial_position is None:
+            initial_position = [0, 0, 0.05]  # Double height for 2x scale
+        if initial_orientation is None:
+            initial_orientation = [0, 0, 0, 1]
+        self.initial_position = initial_position
+        self.initial_orientation = initial_orientation
+        self.block_id = self.load_block()
+
+    def load_block(self):
+        block_id = p.loadURDF("cube_small.urdf", 
+                             self.initial_position, 
+                             self.initial_orientation,
+                             globalScaling=2.0)  # Scale up by factor of 2
+        return block_id
+
+    def reset(self):
+        p.resetBasePositionAndOrientation(
+            self.block_id, 
+            self.initial_position, 
+            self.initial_orientation
+        )
+
 class ThreeFingerGripper:
-    def __init__(self, grip_force=100):
+    def __init__(self, grip_force=1):
         self.grip_force = grip_force
         self.gripper_id = self.load_gripper()
         self.num_joints = p.getNumJoints(self.gripper_id)
@@ -216,12 +240,19 @@ class ThreeFingerGripper:
             p.stepSimulation()
             time.sleep(1/240)
 
+# Modify GraspSimulator to handle both cubes
 class GraspSimulator:
-    def __init__(self, num_trials=10):
+    def __init__(self, num_trials=10000, cube_type="small"):
         self.num_trials = num_trials
         self.setup_simulation()
         self.gripper = ThreeFingerGripper(grip_force=100)
-        self.block = Cube()
+        # Initialize appropriate cube based on type
+        if cube_type == "small":
+            self.block = Cube()
+            self.results_file = "grasp_results.csv"
+        else:
+            self.block = CubeLarge()
+            self.results_file = "2x_grasp_results.csv"
         self.results = []
 
     def setup_simulation(self):
@@ -241,20 +272,27 @@ class GraspSimulator:
         print("\nStarting grasp attempt...")
         
         self.gripper.reset(position, orientation)
-        
-        # Open gripper before spawning block
+
+        # Move cube away during gripper opening
+        temp_height = 0.05 if isinstance(self.block, CubeLarge) else 0.025
+        original_pos, original_orn = p.getBasePositionAndOrientation(self.block.block_id)
+        p.resetBasePositionAndOrientation(
+            self.block.block_id,
+            [10, 10, temp_height],
+            original_orn
+        )
+
         print("Opening gripper...")
         self.gripper.open_gripper()
-        
-        # Debug print joint positions
-        joints = self.gripper.getJointPosition()
-        print("Joint positions after opening:", joints)
-        
-        self.block.reset()
+
+        # Return cube to original position
+        p.resetBasePositionAndOrientation(self.block.block_id, original_pos, original_orn)
         time.sleep(0.5)
-        
+
+        self.gripper.close_gripper()
+
         # Increase grip force for more reliable closing
-        self.gripper.grip_force = 500  # Increase grip force
+        self.gripper.grip_force = 50
         self.gripper.close_gripper()
         
         # Debug print joint positions
@@ -269,26 +307,7 @@ class GraspSimulator:
         contact_points = p.getContactPoints(self.gripper.gripper_id, self.block.block_id)
         block_pos = p.getBasePositionAndOrientation(self.block.block_id)[0]
         success = len(contact_points) > 0 and block_pos[2] > 0.1
-        
-        # Format position and orientation for CSV
-        pos_str = f"[np.float64({position[0]}), np.float64({position[1]}), {position[2]}]"
-        orn_str = str(orientation)  # Quaternion already in correct format
-        
-        # Append result to CSV
-        csv_file = 'grasp_results.csv'
-        
-        # Create file with header if it doesn't exist
-        if not os.path.exists(csv_file):
-            with open(csv_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['position', 'orientation', 'success'])
-        
-        # Append result
-        with open(csv_file, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([pos_str, orn_str, success])
-        
-        print(f"Results appended to {csv_file}")
+
         return success
 
     def reset_for_next_trial(self):
@@ -325,17 +344,22 @@ class GraspSimulator:
     def run_trials(self):
         for trial in range(self.num_trials):
             print(f"\nStarting trial {trial + 1}/{self.num_trials}")
-            
-            # Reset simulation with noise
             position, orientation = self.reset_for_next_trial()
-            
-            # Attempt grasp
             success = self.attempt_grasp(position, orientation)
             self.results.append(success)
+            
+            # Save to appropriate CSV file
+            with open(self.results_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([position, orientation, success])
 
 if __name__ == "__main__":
-    simulator = GraspSimulator(num_trials=10000)
-    simulator.run_trials()
+    # Run trials for small cube
+    simulator_small = GraspSimulator(num_trials=1000, cube_type="large")
+    simulator_small.run_trials()
+    
+    # Run trials for large cube
+    simulator_large = GraspSimulator(num_trials=10000, cube_type="small")
+    simulator_large.run_trials()
+    
     p.disconnect()
-
-

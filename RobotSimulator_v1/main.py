@@ -442,12 +442,28 @@ plot_grasp_results_from_csv('grasp_results.csv')
 
 from plotting_module import plot_3d_scatter_with_labels, plot_3d_with_vectors
 
-# Define file paths
+
 csv_file = 'grasp_results.csv'
 output_file_scatter = 'scatter_plot.png'
 output_file_quiver = 'quiver_plot.png'
 
 # Plot graphs
-plot_3d_scatter_with_labels(csv_file, output_file=output_file_scatter)
-plot_3d_with_vectors(csv_file, output_file=output_file_quiver)
+plot_3d_scatter_with_labels(csv_file)  # Show scatter plot interactively
+plot_3d_with_vectors(csv_file)         # Show vector plot interactively
+
+# If you're saving the plots, you can uncomment these lines
+# plot_3d_scatter_with_labels(csv_file, output_file=output_file_scatter)
+# plot_3d_with_vectors(csv_file, output_file=output_file_quiver)
+
+# Add a blocking input to keep the script running (ensures plot windows remain open)
+input("Press Enter to close the plots and exit...")
+
+# # Define file paths
+# csv_file = 'grasp_results.csv'
+# output_file_scatter = 'scatter_plot.png'
+# output_file_quiver = 'quiver_plot.png'
+
+# # Plot graphs
+# plot_3d_scatter_with_labels(csv_file, output_file=output_file_scatter)
+# plot_3d_with_vectors(csv_file, output_file=output_file_quiver)
 

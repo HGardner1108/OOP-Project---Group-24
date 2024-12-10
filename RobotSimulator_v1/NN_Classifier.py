@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
 from sklearn.inspection import permutation_importance
+from sklearn.manifold import TSNE
 import os
 from skorch import NeuralNetBinaryClassifier
 
@@ -116,99 +117,117 @@ def plot_learning_curve_fn(train_sizes, train_scores, test_scores, save_path):
     plt.savefig(save_path)
     plt.close()
 
+def plot_tsne(X, y, save_path, n_components=2):
+    """Apply T-SNE and plot the results."""
+    tsne = TSNE(n_components=n_components, random_state=42)
+    X_tsne = tsne.fit_transform(X)
+
+    plt.figure(figsize=(8, 6))
+    colors = ['green' if label == 1 else 'red' for label in y]
+    if n_components == 2:
+        plt.scatter(X_tsne[:, 0], X_tsne[:, 1], c=colors, s=50, alpha=0.7)
+        plt.xlabel('TSNE Component 1')
+        plt.ylabel('TSNE Component 2')
+    elif n_components == 3:
+        ax = plt.figure().add_subplot(projection='3d')
+        ax.scatter(X_tsne[:, 0], X_tsne[:, 1], X_tsne[:, 2], c=colors, s=50, alpha=0.7)
+        ax.set_xlabel('TSNE Component 1')
+        ax.set_ylabel('TSNE Component 2')
+        ax.set_zlabel('TSNE Component 3')
+    plt.title('T-SNE Visualization')
+    plt.savefig(save_path)
+    plt.close()
+
+def evaluate_model_with_splits(X, y, splits, model_class, output_dir):
+    """Evaluate the model with different train-test splits."""
+    results = []
+
+    for split in splits:
+        print(f"\nEvaluating with train-test split: {split*100:.0f}% train / {100-split*100:.0f}% test")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-split, random_state=42, stratify=y)
+
+        # Initialize the model, loss function, and optimizer using Skorch
+        net = NeuralNetBinaryClassifier(
+            module=model_class,
+            max_epochs=100,
+            lr=0.001,
+            batch_size=16,
+            optimizer=optim.Adam,
+            criterion=nn.BCELoss,
+            device='cuda' if torch.cuda.is_available() else 'cpu',
+            verbose=0
+        )
+
+        # Fit the model
+        net.fit(X_train.astype(np.float32), y_train.astype(np.float32))
+
+        # Evaluate on test set
+        y_pred = net.predict(X_test.astype(np.float32))
+        y_proba = net.predict_proba(X_test.astype(np.float32))[:, 1]
+
+        accuracy = accuracy_score(y_test, y_pred)
+        print(f'Test Accuracy: {accuracy:.4f}')
+        print('Classification Report:')
+        print(classification_report(y_test, y_pred))
+
+        # Compute ROC curve and AUC
+        fpr, tpr, thresholds = roc_curve(y_test, y_proba)
+        roc_auc = auc(fpr, tpr)
+
+        # Plot and save ROC curve
+        roc_curve_path = os.path.join(output_dir, f'roc_curve_{int(split*100)}.png')
+        plot_roc_curve_fn(fpr, tpr, roc_auc, roc_curve_path)
+        print(f"ROC curve saved to '{roc_curve_path}'.")
+
+        # Compute Confusion Matrix
+        cm = confusion_matrix(y_test, y_pred)
+        print('Confusion Matrix:')
+        print(cm)
+
+        # Plot and save Confusion Matrix
+        cm_path = os.path.join(output_dir, f'confusion_matrix_{int(split*100)}.png')
+        plot_confusion_matrix_fn(cm, ['Failure', 'Success'], cm_path)
+        print(f"Confusion matrix saved to '{cm_path}'.")
+
+        # Save results
+        results.append({
+            'split': split,
+            'accuracy': accuracy,
+            'roc_auc': roc_auc,
+            'confusion_matrix': cm
+        })
+
+    return results
+
 def main():
     # Load data
     X, y = load_data('normalised_grasp_results.csv')
 
-    # Split into training and testing sets
-    X_train_np, X_test_np, y_train_np, y_test_np = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y
-    )
+    # Define train-test splits to evaluate
+    splits = [0.5, 0.6, 0.7, 0.8, 0.9]
 
-    # Initialize the model, loss function, and optimizer using Skorch
-    net = Net()
-    net = NeuralNetBinaryClassifier(
-        module=Net,
-        max_epochs=200,
-        lr=0.001,
-        batch_size=16,
-        optimizer=optim.Adam,
-        criterion=nn.BCELoss,
-        device='cuda' if torch.cuda.is_available() else 'cpu',
-        verbose=0
-    )
+    # Create output directory for results
+    output_dir = 'plots'
+    os.makedirs(output_dir, exist_ok=True)
 
-    # Fit the model
-    net.fit(X_train_np.astype(np.float32), y_train_np.astype(np.float32))
+    # Evaluate model with different train-test splits
+    results = evaluate_model_with_splits(X, y, splits, Net, output_dir)
 
-    # Evaluate on test set
-    y_pred = net.predict(X_test_np.astype(np.float32))
-    y_proba = net.predict_proba(X_test_np.astype(np.float32))[:, 1]
+    # Print summary of results
+    for result in results:
+        print(f"\nTrain-Test Split: {result['split']*100:.0f}% train / {100-result['split']*100:.0f}% test")
+        print(f"Accuracy: {result['accuracy']:.4f}")
+        print(f"ROC AUC: {result['roc_auc']:.4f}")
+        print(f"Confusion Matrix:\n{result['confusion_matrix']}")
 
-    accuracy = accuracy_score(y_test_np, y_pred)
-    print(f'Test Accuracy: {accuracy:.4f}')
-    print('Classification Report:')
-    print(classification_report(y_test_np, y_pred))
+    # Apply T-SNE and plot the results
+    tsne_path_2d = os.path.join(output_dir, 'tsne_2d.png')
+    plot_tsne(X, y, tsne_path_2d, n_components=2)
+    print(f"T-SNE 2D plot saved to '{tsne_path_2d}'.")
 
-    # Compute ROC curve and AUC
-    fpr, tpr, thresholds = roc_curve(y_test_np, y_proba)
-    roc_auc = auc(fpr, tpr)
-
-    # Plot and save ROC curve
-    plot_roc_curve_fn(fpr, tpr, roc_auc, 'plots/roc_curve.png')
-    print("ROC curve saved to 'plots/roc_curve.png'.")
-
-    # Compute Confusion Matrix
-    cm = confusion_matrix(y_test_np, y_pred)
-    print('Confusion Matrix:')
-    print(cm)
-
-    # Plot and save Confusion Matrix
-    plot_confusion_matrix_fn(cm, ['Failure', 'Success'], 'plots/confusion_matrix.png')
-    print("Confusion matrix saved to 'plots/confusion_matrix.png'.")
-
-    # Feature Importance via Permutation
-    print("Calculating feature importances via permutation...")
-    feature_names = ['X', 'Y', 'Z', 'roll', 'pitch', 'yaw']
-    # Using sklearn's permutation_importance with Skorch's compatible estimator
-    from sklearn.inspection import permutation_importance
-
-    result = permutation_importance(
-        net, X_test_np.astype(np.float32), y_test_np, n_repeats=10, random_state=42, scoring='accuracy'
-    )
-    feature_importances = result.importances_mean
-    print("Feature importances calculated.")
-
-    # Plot and save Feature Importances
-    plot_feature_importance_fn(feature_importances, feature_names, 'plots/feature_importances.png')
-    print("Feature importances plot saved to 'plots/feature_importances.png'.")
-
-    # Apply PCA
-    print("Applying PCA...")
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(X_train_np)
-    print(f"PCA completed. Explained variance ratios: {pca.explained_variance_ratio_}")
-
-    # Plot and save PCA Explained Variance
-    plot_pca_variance_fn(pca, 'plots/pca_variance.png')
-    print("PCA explained variance plot saved to 'plots/pca_variance.png'.")
-
-    # Plot and save Learning Curve using Skorch's compatible estimator
-    print("Generating learning curve...")
-    train_sizes, train_scores, test_scores = learning_curve(
-        estimator=net,
-        X=X.astype(np.float32),
-        y=y.astype(np.float32),
-        train_sizes=np.linspace(0.1, 1.0, 10),
-        cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
-        scoring='accuracy',
-        n_jobs=-1
-    )
-
-    plot_learning_curve_fn(train_sizes, train_scores, test_scores, 'plots/learning_curve.png')
-    print("Learning curve saved to 'plots/learning_curve.png'.")
-
-    print("All plots have been saved to the 'plots' directory.")
+    tsne_path_3d = os.path.join(output_dir, 'tsne_3d.png')
+    plot_tsne(X, y, tsne_path_3d, n_components=3)
+    print(f"T-SNE 3D plot saved to '{tsne_path_3d}'.")
 
 if __name__ == "__main__":
     main()

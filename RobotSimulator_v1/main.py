@@ -59,12 +59,47 @@ class CubeLarge(Block):
             self.initial_orientation
         )
 
-class ThreeFingerGripper:
-    def __init__(self, grip_force=1):
+class Gripper(ABC):
+    """Abstract base class for grippers."""
+    
+    @abstractmethod
+    def load_gripper(self):
+        """Load the gripper URDF into the simulation."""
+        pass
+    
+    @abstractmethod
+    def open_gripper(self):
+        """Open the gripper."""
+        pass
+        
+    @abstractmethod
+    def close_gripper(self):
+        """Close the gripper."""
+        pass
+        
+    @abstractmethod
+    def lift_gripper(self, height=0.4, max_force=1000):
+        """Lift the gripper to specified height."""
+        pass
+        
+    @abstractmethod
+    def reset(self, position, orientation):
+        """Reset gripper to specified pose."""
+        pass
+        
+    @abstractmethod
+    def getJointPosition(self):
+        """Get current joint positions."""
+        pass
+
+# Update ThreeFingerGripper to inherit from Gripper
+class ThreeFingerGripper(Gripper):
+    def __init__(self, grip_force=100):
         self.grip_force = grip_force
         self.gripper_id = self.load_gripper()
         self.num_joints = p.getNumJoints(self.gripper_id)
-        print(f"Number of joints: {self.num_joints}")
+        self.default_joint_positions = [0.05] * self.num_joints
+        self.open = False
         
         # Initialize all joints to closed position
         self.default_joint_positions = [0.05] * self.num_joints

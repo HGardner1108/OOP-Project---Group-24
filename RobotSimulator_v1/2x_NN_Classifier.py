@@ -117,9 +117,9 @@ def plot_learning_curve_fn(train_sizes, train_scores, test_scores, save_path):
     plt.savefig(save_path)
     plt.close()
 
-def plot_tsne(X, y, save_path, n_components=2):
+def plot_tsne(X, y, save_path, n_components=2, perplexity=30):
     """Apply T-SNE and plot the results."""
-    tsne = TSNE(n_components=n_components, random_state=42)
+    tsne = TSNE(n_components=n_components, random_state=42, perplexity=perplexity)
     X_tsne = tsne.fit_transform(X)
 
     plt.figure(figsize=(8, 6))
@@ -222,11 +222,11 @@ def main():
 
     # Apply T-SNE and plot the results
     tsne_path_2d = os.path.join(output_dir, 'tsne_2d.png')
-    plot_tsne(X, y, tsne_path_2d, n_components=2)
+    plot_tsne(X, y, tsne_path_2d, n_components=2, perplexity=100)
     print(f"T-SNE 2D plot saved to '{tsne_path_2d}'.")
 
     tsne_path_3d = os.path.join(output_dir, 'tsne_3d.png')
-    plot_tsne(X, y, tsne_path_3d, n_components=3)
+    plot_tsne(X, y, tsne_path_3d, n_components=3, perplexity=100)
     print(f"T-SNE 3D plot saved to '{tsne_path_3d}'.")
 
 if __name__ == "__main__":
